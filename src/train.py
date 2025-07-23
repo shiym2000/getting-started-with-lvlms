@@ -2,7 +2,9 @@ import json
 import os
 from dataclasses import dataclass
 
+import bitsandbytes as bnb
 import transformers
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import Trainer
 
 from dataset import MultiModalDataset, DataCollatorForMultiModalDataset
@@ -29,6 +31,10 @@ class TrainingArguments(transformers.TrainingArguments):
     image3d_dir: str = ""
 
     tune_type_llm: str = "frozen"
+    tune_type_llm_lora_r: int = None
+    tune_type_llm_lora_alpha: int = None
+    tune_type_llm_lora_dropout: float = None
+    tune_type_llm_lora_bias: str = None
     tune_type_encoder_image: str = "frozen"
     tune_type_connector_image: str = "frozen"
     tune_type_encoder_image3d: str = "frozen"
@@ -38,6 +44,28 @@ class TrainingArguments(transformers.TrainingArguments):
 def tune_type_setting(training_arguments, model):
     if training_arguments.tune_type_llm == "full":
         model.llm.requires_grad_(True)
+    elif training_arguments.tune_type_llm == "lora":
+        lora_config = LoraConfig(
+            r=training_arguments.tune_type_llm_lora_r,
+            lora_alpha=training_arguments.tune_type_llm_lora_alpha,
+            lora_dropout=training_arguments.tune_type_llm_lora_dropout,
+            bias=training_arguments.tune_type_llm_lora_bias,
+            task_type="CAUSAL_LM",
+        )
+        model.llm = get_peft_model(model.llm, lora_config)
+        model.llm.print_trainable_parameters()
+    elif training_arguments.tune_type_llm == "qlora":
+        bnb.nn.Linear8bitLt.convert_model(model.llm)
+        model.llm = prepare_model_for_kbit_training(model.llm)
+        lora_config = LoraConfig(
+            r=training_arguments.tune_type_llm_lora_r,
+            lora_alpha=training_arguments.tune_type_llm_lora_alpha,
+            lora_dropout=training_arguments.tune_type_llm_lora_dropout,
+            bias=training_arguments.tune_type_llm_lora_bias,
+            task_type="CAUSAL_LM",
+        )
+        model.llm = get_peft_model(model.llm, lora_config)
+        model.llm.print_trainable_parameters()
 
     if model.encoder_image is not None:
         if training_arguments.tune_type_encoder_image == "full":
@@ -98,6 +126,10 @@ if __name__ == "__main__":
         data_collator=data_collator,
     )
     trainer.train()
+
+    # LoRA/QLoRA模型合并到主模型中
+    if training_arguments.tune_type_llm == "lora" or training_arguments.tune_type_llm == "qlora":
+        trainer.model.llm = trainer.model.llm.merge_and_unload()
 
     # save model: trainer会先聚合不同GPU上的模型，再调用model.save_pretrained保存
     trainer.save_model(training_arguments.output_dir)

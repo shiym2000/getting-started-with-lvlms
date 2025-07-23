@@ -19,6 +19,6 @@
 + [x] 基于DeepSpeed并行训练（ZeRO-2/ZeRO-3）
 + [x] `src/inference.py`
 + [x] `src/inference_multiturn.py`
-+ [ ] LoRA微调
++ [x] LoRA微调
 + [ ] QLoRA微调
 + [ ] 基于vLLM加速推理
